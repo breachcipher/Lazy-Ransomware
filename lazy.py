@@ -904,6 +904,7 @@ class RansomWare:
             {"name": "gdrv.sys", "service": "gdrv", "device": "gdrv"},
             {"name": "NSecKrnl.sys", "service": "NSecKrnl", "description": "Reynolds style"},
             {"name": "wsftprm.sys", "service": "wsftprm"},
+            {"name": "PoisonX.sys", "service": "PoisonX"},
         ]
 
         for drv in drivers:
